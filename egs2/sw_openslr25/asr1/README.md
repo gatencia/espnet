@@ -1,20 +1,19 @@
-# ALFFA Swahili Broadcast News ASR Recipe (OpenSLR SLR25)
+# ALFFA Swahili Broadcast News ASR (OpenSLR SLR25)
 
 ## Corpus
 
-This recipe trains an ASR model on the Swahili broadcast-news portion of the
-ALFFA (African Languages in the Field: speech Fundamentals and Automation)
-corpus, distributed via OpenSLR: https://www.openslr.org/25/
+Swahili broadcast-news portion of the ALFFA (African Languages in the Field:
+speech Fundamentals and Automation) corpus: https://www.openslr.org/25/
 
 - License: MIT
-- ~9.5 hours train audio (10,180 utterances, minus the 634 held out as `sw_dev`)
-- ~1.8 hours test audio (1,991 utterances)
-- `sw_dev` (634 utterances) is carved out of the shipped train set, since the
-  corpus ships only train/test splits. Two whole recording sessions are held
-  out (never individual utterances split from a session), so no audio leaks
-  between train and dev. See `local/data_prep.py` for details.
+- Train: 9,546 utterances (~9 h) after holding out `sw_dev`
+- Dev (`sw_dev`): 634 utterances, carved out of the shipped train set
+- Test (`sw_test`): 1,991 utterances (~1.8 h), the official test set
 
-Citation:
+The corpus ships only train/test splits, so `sw_dev` holds out two whole
+recording sessions (`SWH-05-20110327`, `SWH-15-20101109`, one per show family)
+rather than individual utterances, so no recording leaks between train and dev.
+See `local/data_prep.py`.
 
 ```
 @InProceedings{gelas:hal-00954048,
@@ -32,32 +31,68 @@ Citation:
 ./run.sh
 ```
 
-This recipe defaults to `--ngpu 0` (CPU) since it was developed without cluster
-access. Once you have a GPU (e.g. via a PSC/Bridges-2 or NCSA Delta account),
-re-run with a GPU-enabled config, e.g.:
+The corpus is downloaded automatically into `downloads/`. Defaults: 1 GPU,
+speed perturbation (0.9/1.0/1.1), BPE 300, no language model.
 
-```bash
-./run.sh --ngpu 1 --nj 32 --inference_nj 32
-```
+## Notes
 
-## Notes on this recipe
-
-- The corpus's own `wav.scp` ships with placeholder audio paths (e.g.
-  `/my_dir/wav/...`), not real ones. `local/data_prep.py` does not assume a
-  fixed internal directory layout for the downloaded tarball; instead it
-  indexes every `.wav` file under the download directory by filename and
-  matches utterances to audio by basename. Any utterance whose audio can't be
-  located is dropped with a warning (see stderr from `local/data.sh` stage 1).
-- No language model is used (`--use_lm false`) to keep the recipe's scope
-  minimal; this is a reasonable target for a first contribution and can be
-  added later.
-- `local/metadata/` bundles the small (a few MB total) canonical
-  train/test `text`/`utt2spk`/`wav.scp` files, sourced from
-  https://github.com/besacier/ALFFA_PUBLIC (the versioned companion repo to
-  the OpenSLR release), since those don't reliably ship inside the OpenSLR
-  tarball itself.
+- The tarball's `wav.scp` contains placeholder paths (`/my_dir/wav/...`).
+  `local/data_prep.py` indexes every `.wav` under the download directory and
+  matches utterances by file name instead of trusting those paths.
+- `local/metadata/` bundles the canonical train/test `text`, `utt2spk` and
+  `wav.scp` files from https://github.com/besacier/ALFFA_PUBLIC.
+- `egs2/iwslt21_low_resource` also uses ALFFA Swahili, but as one part of a
+  combined training set evaluated on the IWSLT 2021 test sets. This recipe
+  trains on ALFFA alone and reports results on ALFFA's official test set.
 
 ## Results
 
-_TODO: fill in after training completes -- WER on `sw_test`, and a comparison
-against the Gelas et al. (2012) baseline._
+### Environments
+- date: `Thu Oct 15 04:57:52 EDT 2026`
+- python version: `3.12.8`
+- espnet2 version: `espnet2 202610.post2`
+- pytorch version: `pytorch 2.13.0+cu126`
+- Git hash: `9dea2da7499f65344b40f140a1bb1bf7e263ca0b`
+
+### asr_train_asr_raw_bpe300_sp
+
+Transformer encoder-decoder (6 encoder / 3 decoder blocks, 256-dim attention),
+hybrid CTC/attention (CTC weight 0.3 in training, 0.5 in decoding),
+SpecAugment, speed perturbation, BPE 300, average of the 10 best checkpoints,
+no language model. About 2 hours on one V100 (32 GB).
+
+#### WER
+
+|dataset|Snt|Wrd|Corr|Sub|Del|Ins|Err|S.Err|
+|---|---|---|---|---|---|---|---|---|
+|decode_asr_asr_model_valid.acc.ave/sw_dev|634|5877|76.2|19.4|4.5|3.8|27.7|82.2|
+|decode_asr_asr_model_valid.acc.ave/sw_test|1991|17700|71.2|23.2|5.6|2.7|31.5|86.4|
+
+#### CER
+
+|dataset|Snt|Wrd|Corr|Sub|Del|Ins|Err|S.Err|
+|---|---|---|---|---|---|---|---|---|
+|decode_asr_asr_model_valid.acc.ave/sw_dev|634|37237|93.2|2.5|4.3|3.0|9.8|82.2|
+|decode_asr_asr_model_valid.acc.ave/sw_test|1991|111615|91.4|3.3|5.3|2.2|10.8|86.4|
+
+#### TER
+
+|dataset|Snt|Wrd|Corr|Sub|Del|Ins|Err|S.Err|
+|---|---|---|---|---|---|---|---|---|
+|decode_asr_asr_model_valid.acc.ave/sw_dev|634|15452|84.2|8.7|7.1|3.0|18.8|82.2|
+|decode_asr_asr_model_valid.acc.ave/sw_test|1991|45854|80.9|10.9|8.2|2.4|21.5|86.4|
+
+### Comparison with published baselines
+
+Kaldi GMM/SGMM results on the same test set, from
+https://github.com/besacier/ALFFA_PUBLIC (these use a word-level n-gram
+language model; this recipe uses none):
+
+|System|Test WER (%)|
+|---|---|
+|Triphone (13 MFCC)|33.55|
+|Triphone + LDA + MLLT|31.92|
+|Triphone + LDA + MLLT + SAT + fMLLR|31.56|
+|Triphone + LDA + MLLT + SAT + fMLLR + MMI/fMMI|30.87|
+|Triphone + LDA + MLLT + SGMM|27.36|
+|**This recipe (no LM)**|**31.5**|
